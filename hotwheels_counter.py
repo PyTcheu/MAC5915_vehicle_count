@@ -1,6 +1,7 @@
 import numpy as np
 import cv2
 from tracker import *
+import time
 
 #Remove componentes pequenos de uma imagem binária.
 def removesmall(img, min_size):
@@ -45,11 +46,10 @@ cap = cv2.VideoCapture("Videos/hotwheels.mkv")
 object_detector = cv2.createBackgroundSubtractorMOG2(history=500, varThreshold=100)
 #object_detector = cv2.createBackgroundSubtractorKNN()
 
-# Initialize counters
+# Initialize counters and history
 count = 0
-
-# Keep track of vehicles that have already been counted
-counted_vehicles = set()
+counted_vehicles = {}  # Use a dictionary instead of a set
+history_timeout = 5  # Timeout in seconds for history
 
 # Minimum height and maximum width for accepted rectangles
 min_rect_height = 150
@@ -72,13 +72,13 @@ while True:
 
     #Calcula a máscara por subtração de fundo.
     mask = object_detector.apply(roi)
-    _, mask = cv2.threshold(mask, 254, 255, cv2.THRESH_BINARY)
+    _, mask = cv2.threshold(mask, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
 
-    mask = removesmall(mask, 60)
+    mask = removesmall(mask, 50)
 
     #Aplica operadores de Morfologia Matemática da erosão e dilatação,
     #para filtrar regiões indesejadas e juntar componentes próximos.
-    kernel = circularkernel(50)
+    kernel = circularkernel(40)
     mask = cv2.dilate(mask,kernel,iterations = 1)
 
     # Para extrair os contornos dos componentes.
@@ -111,13 +111,19 @@ while True:
         # Procura objeto de mesmo id no frame anterior.
         if vid in center_points.keys():
             _, cx = center_points[vid]
-            # Print the values for debugging
-            print(f"xmid: {xmid}, cx: {cx}, id: {vid}")
 
             # Use a combination of position and history to avoid double counting
-            if min_rect_height < h and w < max_rect_width and xmid < 350 and cx > 50 and vid not in counted_vehicles:
-                count += 1
-                counted_vehicles.add(vid)
+            if (
+                min_rect_height < h
+                and w < max_rect_width
+                and xmid < 350
+                and cx > 50
+                and vid not in counted_vehicles
+            ):
+                # Check history to avoid double counting
+                if vid not in counted_vehicles or (vid in counted_vehicles and time.time() - counted_vehicles[vid] > history_timeout):
+                    count += 1
+                    counted_vehicles[vid] = time.time()
 
     # Desenha a linha de chegada.
     cv2.line(roi, (350, 50), (350, 700), (0, 0, 255), 2)
